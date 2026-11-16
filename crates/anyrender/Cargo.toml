@@ -10,6 +10,9 @@ edition.workspace = true
 
 [features]
 default = []
+# Gaussian blur with independent axes and output crops, and two-stage Gaussian chains (`FilterEffect::GaussianBlurXY`,
+# `Filter::gaussian_chain`). Off by default.
+ahcut = []
 serde = [
   "dep:serde",
   "kurbo/serde",

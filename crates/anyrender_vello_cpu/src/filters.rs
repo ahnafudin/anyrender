@@ -50,6 +50,12 @@ pub(crate) fn convert_filter_effect(effect: &FilterEffect) -> Option<FilterPrimi
         FilterEffect::Tile => return None,
         FilterEffect::DiffuseLighting(_diffuse_lighting_filter) => return None,
         FilterEffect::SpecularLighting(_specular_lighting_filter) => return None,
+        // Kinds behind optional anyrender features are not drawn by this adapter either.
+        #[allow(
+            unreachable_patterns,
+            reason = "anyrender's optional features add kinds"
+        )]
+        _ => return None,
     })
 }
 

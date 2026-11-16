@@ -527,14 +527,13 @@ impl WindowRenderer for VelloHybridWindowRenderer {
             cache: &mut self.cached_images,
         };
 
-        let mut scene_painter = VelloHybridScenePainter {
-            scene: &mut self.scene,
-            layer_stack: Vec::new(),
+        let mut scene_painter = VelloHybridScenePainter::new(
+            &mut self.scene,
             image_manager,
-            texture_bindings: &mut state.texture_bindings,
-            device_handle: &render_surface.device_handle,
-            glyph_caching: self.config.glyph_caching,
-        };
+            &mut state.texture_bindings,
+            &render_surface.device_handle,
+        )
+        .with_glyph_caching(self.config.glyph_caching);
         if self.config.base_color != Color::TRANSPARENT {
             scene_painter.fill(
                 peniko::Fill::NonZero,

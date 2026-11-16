@@ -8,6 +8,8 @@ mod scene;
 mod webgl_scene;
 mod window_renderer;
 
+#[cfg(feature = "ahcut")]
+pub use filters::{CheckedFilterLimits, convert_filter_checked, convert_filter_checked_with};
 pub use image_cache::ImageCache;
 pub use scene::ImageManager;
 pub use scene::VelloHybridScenePainter;

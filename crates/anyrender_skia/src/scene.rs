@@ -948,6 +948,12 @@ fn convert_filter_effect(filter: &Filter, id: FilterId) -> Option<ImageFilter> {
         // - `Tile` needs the filter primitive subregion (src/dst rects) to tile into.
         FilterEffect::Image(_external_image_source) => None,
         FilterEffect::Tile => None,
+        // Kinds behind optional anyrender features are not drawn by this adapter either.
+        #[allow(
+            unreachable_patterns,
+            reason = "anyrender's optional features add kinds"
+        )]
+        _ => None,
     };
 
     // If we do not implement given type of filter then the match statement above returns None
