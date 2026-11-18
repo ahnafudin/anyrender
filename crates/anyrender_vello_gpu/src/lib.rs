@@ -8,6 +8,8 @@ mod webgl;
 #[path = "wgpu/mod.rs"]
 mod wgpu_backend;
 
+#[cfg(feature = "ahcut")]
+pub use common::{CheckedFilterLimits, convert_filter_checked, convert_filter_checked_with};
 pub use common::{ImageCache, VelloGpuRendererOptions};
 #[cfg(all(target_arch = "wasm32", feature = "webgl"))]
 pub use webgl::*;

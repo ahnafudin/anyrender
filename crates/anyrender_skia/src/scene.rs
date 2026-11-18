@@ -1253,6 +1253,12 @@ fn convert_filter_effect(
                 input,
             )
         }
+        // Kinds behind optional anyrender features are not drawn by this adapter either.
+        #[allow(
+            unreachable_patterns,
+            reason = "anyrender's optional features add kinds"
+        )]
+        _ => None,
     };
 
     // If we do not implement given type of filter then the match statement above returns None

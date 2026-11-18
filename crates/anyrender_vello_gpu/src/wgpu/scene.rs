@@ -293,6 +293,10 @@ pub struct VelloGpuScenePainter<'s> {
     pub(crate) image_manager: ImageManager<'s>,
     pub(crate) device_handle: &'s DeviceHandle,
     pub(crate) glyph_caching: bool,
+    #[cfg(feature = "ahcut")]
+    filter_error: Option<anyrender::filters::FilterError>,
+    #[cfg(feature = "ahcut")]
+    checked_filters: Option<crate::common::CheckedFilterLimits>,
 }
 
 impl VelloGpuScenePainter<'_> {
@@ -316,6 +320,10 @@ impl VelloGpuScenePainter<'_> {
             image_manager,
             device_handle,
             glyph_caching: false,
+            #[cfg(feature = "ahcut")]
+            filter_error: None,
+            #[cfg(feature = "ahcut")]
+            checked_filters: None,
         }
     }
 
@@ -327,6 +335,31 @@ impl VelloGpuScenePainter<'_> {
     pub fn with_glyph_caching(mut self, enabled: bool) -> Self {
         self.glyph_caching = enabled;
         self
+    }
+
+    /// Validate every filter as a whole under the default limits (see
+    /// [`with_checked_filter_limits`](Self::with_checked_filter_limits)).
+    #[cfg(feature = "ahcut")]
+    pub fn with_checked_filters(self) -> Self {
+        self.with_checked_filter_limits(crate::common::CheckedFilterLimits::default())
+    }
+
+    /// Validate every filter as a whole before it is recorded: only Gaussian chains are drawn, and a filter that
+    /// is refused is reported by [`take_filter_error`](Self::take_filter_error) instead of being drawn unfiltered.
+    /// The caller must check that before rendering the scene.
+    #[cfg(feature = "ahcut")]
+    pub fn with_checked_filter_limits(
+        mut self,
+        limits: crate::common::CheckedFilterLimits,
+    ) -> Self {
+        self.checked_filters = Some(limits);
+        self
+    }
+
+    /// The first filter refused since the last reset, if any.
+    #[cfg(feature = "ahcut")]
+    pub fn take_filter_error(&mut self) -> Option<anyrender::filters::FilterError> {
+        self.filter_error.take()
     }
 
     fn convert_paint(&mut self, paint: PaintRef<'_>) -> PaintType {
@@ -376,6 +409,10 @@ impl RenderContext for VelloGpuScenePainter<'_> {
 impl PaintScene for VelloGpuScenePainter<'_> {
     fn reset(&mut self) {
         self.scene.reset();
+        #[cfg(feature = "ahcut")]
+        {
+            self.filter_error = None;
+        }
     }
 
     fn push_layer(
@@ -388,6 +425,42 @@ impl PaintScene for VelloGpuScenePainter<'_> {
         filter: Option<Arc<Filter>>,
         _backdrop_filter: Option<Arc<Filter>>,
     ) {
+        #[cfg(feature = "ahcut")]
+        let filter = match self.checked_filters {
+            None => filter,
+            Some(limits) => {
+                if _backdrop_filter.is_some() {
+                    self.filter_error
+                        .get_or_insert(anyrender::filters::FilterError::Unsupported(
+                            "backdrop filter",
+                        ));
+                }
+                let checked = filter.and_then(|filter| {
+                    match crate::common::convert_filter_checked_with(&filter, transform, &limits) {
+                        Ok(filter) => Some(filter),
+                        Err(error) => {
+                            self.filter_error.get_or_insert(error);
+                            None
+                        }
+                    }
+                });
+                if checked.is_some() {
+                    self.scene.set_transform(transform);
+                    self.scene.set_fill_rule(fill);
+                    self.layer_stack.push(LayerKind::FilterOutput);
+                    let output_clip = clip.into_path(DEFAULT_TOLERANCE);
+                    self.scene.push_layer(
+                        Some(&output_clip),
+                        Some(blend.into()),
+                        Some(alpha),
+                        None,
+                        checked,
+                    );
+                    return;
+                }
+                None
+            }
+        };
         let (filter, region) = match filter.as_deref().and_then(crate::common::convert_filter) {
             Some(converted) => (
                 Some(converted),
@@ -470,6 +543,8 @@ impl PaintScene for VelloGpuScenePainter<'_> {
                     self.scene.pop_layer();
                     self.scene.pop_clip();
                 }
+                #[cfg(feature = "ahcut")]
+                LayerKind::FilterOutput => self.scene.pop_layer(),
                 LayerKind::Clip => self.scene.pop_clip(),
                 LayerKind::FilterRegionLayer => {
                     self.scene.pop_clip();
