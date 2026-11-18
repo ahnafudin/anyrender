@@ -34,16 +34,15 @@
 //!
 //! Currently existing backends are:
 //!
-//! - [anyrender_vello_hybrid](https://docs.rs/anyrender_vello_hybrid) which draws using [vello_hybrid](https://docs.rs/vello_hybrid)
+//! - [anyrender_vello_gpu](https://docs.rs/anyrender_vello_gpu) which draws using [vello_gpu](https://docs.rs/vello_gpu)
 //! - [anyrender_vello_cpu](https://docs.rs/anyrender_vello_cpu) which draws using [vello_cpu](https://docs.rs/vello_cpu)
 //! - [anyrender_vello](https://docs.rs/anyrender_vello) which draws using [vello](https://docs.rs/vello)
 //! - [anyrender_skia](https://crates.io/crates/anyrender_skia) which draws using Skia (via the [skia-safe](https://github.com/rust-skia/rust-skia) crate)
 
 #![allow(clippy::collapsible_if)]
 
-use kurbo::{Affine, Rect, Shape, Stroke};
+use kurbo::{Affine, Rect, Shape, Stroke, Vec2};
 use peniko::{BlendMode, Color, Fill, FontData, ImageBrushRef, StyleRef};
-use recording::RenderCommand;
 use std::{any::Any, sync::Arc};
 
 pub mod filters;
@@ -52,10 +51,16 @@ pub mod wasm_send_sync;
 pub use wasm_send_sync::*;
 pub mod types;
 pub use types::*;
+mod shapes;
+pub use shapes::*;
+mod box_shadow;
+pub use box_shadow::*;
 mod null_backend;
 pub use null_backend::*;
 pub mod recording;
 pub use recording::Scene;
+mod pattern;
+pub use pattern::*;
 
 mod resource_id;
 pub use resource_id::ResourceId;
@@ -121,7 +126,8 @@ pub trait WindowRenderer: RenderContext {
     /// synchronously inside `resume` on native, asynchronously (via
     /// `wasm_bindgen_futures::spawn_local`) on `wasm32-unknown-unknown`. After it
     /// fires, the embedder must call [`complete_resume`](Self::complete_resume) to
-    /// transition the renderer to the active state.
+    /// transition the renderer to the active state. Backends that are polled
+    /// instead don't call `on_ready`; see [`is_pending`](Self::is_pending).
     fn resume<F: FnOnce() + 'static>(
         &mut self,
         window: Arc<dyn WindowHandle>,
@@ -142,9 +148,14 @@ pub trait WindowRenderer: RenderContext {
     fn suspend(&mut self);
     fn is_active(&self) -> bool;
 
-    /// Returns `true` while an asynchronous resume is in flight (after `resume`
-    /// but before `complete_resume` has succeeded). Defaults to `false` for
-    /// backends with synchronous initialization.
+    /// Returns `true` while a resume is in flight (after `resume` but before
+    /// `complete_resume` has succeeded). Defaults to `false` for backends with
+    /// synchronous initialization.
+    ///
+    /// Some backends (e.g. WebGL, whose shaders compile in the background) do
+    /// their remaining setup inside `complete_resume` and don't call `on_ready`.
+    /// While this returns `true`, the embedder should keep calling
+    /// `complete_resume` (e.g. once per redraw) until it returns `true`.
     fn is_pending(&self) -> bool {
         false
     }
@@ -152,7 +163,11 @@ pub trait WindowRenderer: RenderContext {
     fn render<F: FnOnce(&mut Self::ScenePainter<'_>)>(&mut self, draw_fn: F);
 }
 
-/// Abstraction for rendering a scene to an image buffer
+/// Abstraction for rendering a scene to an image buffer.
+///
+/// Buffers hold RGBA8 pixels. Whether they are premultiplied depends on the backend:
+/// `anyrender_vello_cpu`, `anyrender_skia` and `anyrender_tiny_skia` write premultiplied alpha,
+/// while `anyrender_vello` writes unpremultiplied alpha.
 pub trait ImageRenderer: RenderContext {
     type ScenePainter<'a>: PaintScene
     where
@@ -208,6 +223,13 @@ pub trait PaintScene: RenderContext {
     /// However, the transforms are not saved or modified by the layer stack.
     fn push_clip_layer(&mut self, fill: Fill, transform: Affine, clip: &impl Shape);
 
+    /// Pushes a new mask layer clipped by the specified shape.
+    /// Content drawn until the layer is popped is used as a mask for the content drawn before it
+    /// in the enclosing layer, converted to a mask according to `mode`. Everything outside of the
+    /// clip shape counts as fully masked, so content of the enclosing layer outside of it is removed.
+    /// However, the transforms are not saved or modified by the layer stack.
+    fn push_mask_layer(&mut self, fill: Fill, mode: MaskMode, transform: Affine, clip: &impl Shape);
+
     /// Pops the current layer.
     fn pop_layer(&mut self);
 
@@ -219,6 +241,7 @@ pub trait PaintScene: RenderContext {
         brush: impl Into<PaintRef<'a>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
+        anti_aliasing: AntiAliasing,
     );
 
     /// Fills a shape using the specified style and brush.
@@ -229,6 +252,7 @@ pub trait PaintScene: RenderContext {
         brush: impl Into<PaintRef<'a>>,
         brush_transform: Option<Affine>,
         shape: &impl Shape,
+        anti_aliasing: AntiAliasing,
     );
 
     /// Draws a run of glyphs
@@ -246,91 +270,36 @@ pub trait PaintScene: RenderContext {
         transform: Affine,
         glyph_transform: Option<Affine>,
         glyphs: impl Iterator<Item = Glyph> + Clone,
+        anti_aliasing: AntiAliasing,
     );
 
-    /// Draw a rounded rectangle blurred with a gaussian filter.
+    /// Draw a box shadow cast by `box_shape`, as specified by CSS `box-shadow`.
+    ///
+    /// The shape of the shadow is `box_shape` grown by `spread` (or for an inset shadow, shrunk by
+    /// `spread`), with its corner radii adjusted as specified by CSS (see
+    /// [`NonUniformRoundedRect::spread`]), and translated by `offset`. It is then blurred by a
+    /// gaussian filter with a standard deviation of `std_dev`. A CSS blur radius `b` corresponds
+    /// to a `std_dev` of `b / 2`.
+    ///
+    /// `kind` determines where the shadow is painted: see [`BoxShadowKind`]. Everything is
+    /// transformed by `transform`.
+    #[allow(clippy::too_many_arguments)]
     fn draw_box_shadow(
         &mut self,
         transform: Affine,
-        rect: Rect,
-        brush: Color,
-        radius: f64,
+        box_shape: &NonUniformRoundedRect,
+        offset: Vec2,
+        spread: f64,
         std_dev: f64,
+        color: Color,
+        kind: BoxShadowKind,
     );
 
     // --- Provided methods
 
     /// Append a recorded Scene Fragment to the current scene
     fn append_scene(&mut self, scene: Scene, scene_transform: Affine) {
-        for cmd in scene.commands {
-            match cmd {
-                RenderCommand::PushLayer(cmd) => self.push_layer(
-                    cmd.fill,
-                    cmd.blend,
-                    cmd.alpha,
-                    scene_transform * cmd.transform,
-                    &cmd.clip,
-                    cmd.filter,
-                    cmd.backdrop_filter,
-                ),
-                RenderCommand::PushClipLayer(cmd) => {
-                    self.push_clip_layer(cmd.fill, scene_transform * cmd.transform, &cmd.clip)
-                }
-                RenderCommand::PopLayer => self.pop_layer(),
-                RenderCommand::Stroke(cmd) => self.stroke(
-                    &cmd.style,
-                    scene_transform * cmd.transform,
-                    match cmd.brush {
-                        Paint::Solid(alpha_color) => Paint::Solid(alpha_color),
-                        Paint::Gradient(ref gradient) => Paint::Gradient(gradient),
-                        Paint::Image(ref image) => Paint::Image(image.as_ref()),
-                        Paint::Resource(id) => Paint::Resource(id),
-                        Paint::Custom(ref custom) => Paint::Custom(custom.as_ref()),
-                    },
-                    cmd.brush_transform,
-                    &cmd.shape,
-                ),
-                RenderCommand::Fill(cmd) => self.fill(
-                    cmd.fill,
-                    scene_transform * cmd.transform,
-                    match cmd.brush {
-                        Paint::Solid(alpha_color) => Paint::Solid(alpha_color),
-                        Paint::Gradient(ref gradient) => Paint::Gradient(gradient),
-                        Paint::Image(ref image) => Paint::Image(image.as_ref()),
-                        Paint::Resource(id) => Paint::Resource(id),
-                        Paint::Custom(ref custom) => Paint::Custom(custom.as_ref()),
-                    },
-                    cmd.brush_transform,
-                    &cmd.shape,
-                ),
-                RenderCommand::GlyphRun(cmd) => self.draw_glyphs(
-                    &cmd.font_data,
-                    cmd.font_size,
-                    cmd.hint,
-                    &cmd.normalized_coords,
-                    cmd.embolden,
-                    &cmd.style,
-                    match cmd.brush {
-                        Paint::Solid(alpha_color) => Paint::Solid(alpha_color),
-                        Paint::Gradient(ref gradient) => Paint::Gradient(gradient),
-                        Paint::Image(ref image) => Paint::Image(image.as_ref()),
-                        Paint::Resource(id) => Paint::Resource(id),
-                        Paint::Custom(ref custom) => Paint::Custom(custom.as_ref()),
-                    },
-                    cmd.brush_alpha,
-                    scene_transform * cmd.transform,
-                    cmd.glyph_transform,
-                    cmd.glyphs.into_iter(),
-                ),
-                RenderCommand::BoxShadow(cmd) => self.draw_box_shadow(
-                    scene_transform * cmd.transform,
-                    cmd.rect,
-                    cmd.brush,
-                    cmd.radius,
-                    cmd.std_dev,
-                ),
-            }
-        }
+        scene.replay(self, scene_transform);
     }
 
     /// Utility method to draw an image at it's natural size. For more advanced image drawing use the `fill` method
@@ -346,6 +315,7 @@ pub trait PaintScene: RenderContext {
                 image.image.width as f64,
                 image.image.height as f64,
             ),
+            AntiAliasing::Enabled,
         );
     }
 }
