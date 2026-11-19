@@ -7,6 +7,9 @@ pub(crate) enum LayerKind {
     Clip,
     /// A filter layer whose input and output are clipped to its filter region.
     FilterRegionLayer,
+    /// A checked filter layer that carries its own output clip, with no matching clip push.
+    #[cfg(feature = "ahcut")]
+    FilterOutput,
 }
 
 /// Whether a glyph run drawn with the given transforms can use Vello's glyph atlas cache.

@@ -408,13 +408,12 @@ impl WindowRenderer for VelloGpuWindowRenderer {
             texture_bindings: &mut state.texture_bindings,
         };
 
-        let mut scene_painter = VelloGpuScenePainter {
-            scene: &mut self.scene,
-            layer_stack: Vec::new(),
+        let mut scene_painter = VelloGpuScenePainter::new(
+            &mut self.scene,
             image_manager,
-            device_handle: &render_surface.device_handle,
-            glyph_caching: self.config.glyph_caching,
-        };
+            &render_surface.device_handle,
+        )
+        .with_glyph_caching(self.config.glyph_caching);
         if self.config.base_color != Color::TRANSPARENT {
             scene_painter.fill(
                 peniko::Fill::NonZero,

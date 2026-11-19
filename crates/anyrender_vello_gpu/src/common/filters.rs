@@ -17,6 +17,11 @@ pub(crate) fn convert_filter(filter: &Filter) -> Option<vello_common::filter_eff
 
 pub(crate) fn convert_filter_effect(effect: &FilterEffect) -> Option<FilterPrimitive> {
     Some(match effect {
+        #[cfg(feature = "ahcut")]
+        FilterEffect::GaussianBlurXY(blur) => FilterPrimitive::GaussianBlurXY {
+            std_deviation: blur.std_deviation,
+            linear_rgb: blur.linear_rgb,
+        },
         FilterEffect::Flood(color) => FilterPrimitive::Flood { color: *color },
         FilterEffect::GaussianBlur(blur) => FilterPrimitive::GaussianBlur {
             std_deviation_x: blur.std_deviation_x,
@@ -50,6 +55,12 @@ pub(crate) fn convert_filter_effect(effect: &FilterEffect) -> Option<FilterPrimi
         FilterEffect::Tile => return None,
         FilterEffect::DiffuseLighting(_diffuse_lighting_filter) => return None,
         FilterEffect::SpecularLighting(_specular_lighting_filter) => return None,
+        // Kinds behind optional anyrender features that this crate was built without.
+        #[allow(
+            unreachable_patterns,
+            reason = "anyrender's optional features add kinds"
+        )]
+        _ => return None,
     })
 }
 

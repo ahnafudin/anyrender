@@ -301,6 +301,8 @@ impl PaintScene for WebGlScenePainter<'_> {
                     self.scene.pop_clip();
                 }
                 LayerKind::Clip => self.scene.pop_clip(),
+                #[cfg(feature = "ahcut")]
+                LayerKind::FilterOutput => self.scene.pop_layer(),
                 LayerKind::FilterRegionLayer => {
                     self.scene.pop_clip();
                     self.scene.pop_layer();

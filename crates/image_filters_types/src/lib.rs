@@ -29,6 +29,13 @@ use kurbo::{Affine, Rect, Vec2};
 use peniko::color::{AlphaColor, Srgb};
 use smallvec::SmallVec;
 
+#[cfg(feature = "ahcut")]
+mod gaussian_chain;
+#[cfg(feature = "ahcut")]
+mod gaussian_xy;
+#[cfg(feature = "ahcut")]
+pub use gaussian_xy::{FilterError, GaussianBlurXY};
+
 use self::{
     blur::GaussianBlurFilter,
     color_transformation::ColorMatrix,
@@ -59,6 +66,10 @@ pub struct Filter<I> {
     expansion_rect: Rect,
     /// The filter region given to primitives added next. See [`Self::set_region`].
     region: Rect,
+    /// Explicit final crop of a Gaussian chain; each stage keeps its own output crop.
+    #[cfg(feature = "ahcut")]
+    #[cfg_attr(feature = "serde", serde(default))]
+    final_region: Option<Rect>,
 }
 
 impl<I> Filter<I> {
@@ -70,6 +81,8 @@ impl<I> Filter<I> {
             output: FilterId(0),
             expansion_rect: Rect::ZERO,
             region,
+            #[cfg(feature = "ahcut")]
+            final_region: None,
         }
     }
 
@@ -272,7 +285,26 @@ impl<I> Filter<I> {
             output: self.output,
             expansion_rect: self.expansion_rect,
             region: self.region,
+            #[cfg(feature = "ahcut")]
+            final_region: self.final_region,
         })
+    }
+
+    /// The output crop of a Gaussian chain, or of a single independent-axis Gaussian.
+    #[cfg(feature = "ahcut")]
+    pub fn output_region(&self) -> Option<Rect> {
+        if let Some(region) = self.final_region {
+            return Some(region);
+        }
+        match self.nodes() {
+            [
+                FilterGraphNode {
+                    effect: FilterEffect::GaussianBlurXY(blur),
+                    ..
+                },
+            ] => Some(blur.region),
+            _ => None,
+        }
     }
 
     /// The output filter for the graph.
@@ -521,6 +553,9 @@ pub enum FilterEffect<I> {
     /// approximately 3 × `std_deviation`, as this captures ~99.7% of the
     /// Gaussian distribution.
     GaussianBlur(GaussianBlurFilter),
+    /// Gaussian blur with independent x and y standard deviations and an output crop.
+    #[cfg(feature = "ahcut")]
+    GaussianBlurXY(GaussianBlurXY),
 
     /// Drop shadow effect (compound primitive).
     ///
@@ -620,6 +655,8 @@ impl<I> FilterEffect<I> {
         Ok(match self {
             Self::Flood(color) => FilterEffect::Flood(*color),
             Self::GaussianBlur(blur) => FilterEffect::GaussianBlur(*blur),
+            #[cfg(feature = "ahcut")]
+            Self::GaussianBlurXY(blur) => FilterEffect::GaussianBlurXY(blur.clone()),
             Self::DropShadow(shadow) => FilterEffect::DropShadow(shadow.clone()),
             Self::ColorMatrix(matrix) => FilterEffect::ColorMatrix(matrix.clone()),
             Self::Offset(offset) => FilterEffect::Offset(*offset),
@@ -723,6 +760,13 @@ impl<I> FilterEffect<I> {
     /// Most filters that don't sample neighboring pixels return `Rect::ZERO`.
     pub fn expansion_rect(&self) -> Rect {
         match self {
+            #[cfg(feature = "ahcut")]
+            Self::GaussianBlurXY(blur) => Rect::new(
+                -3.0 * f64::from(blur.std_deviation[0]),
+                -3.0 * f64::from(blur.std_deviation[1]),
+                3.0 * f64::from(blur.std_deviation[0]),
+                3.0 * f64::from(blur.std_deviation[1]),
+            ),
             Self::GaussianBlur(blur) => {
                 // Gaussian blur expands by 3*sigma (covers 99.7% of distribution)
                 let rx = (blur.std_deviation_x * 3.0) as f64;

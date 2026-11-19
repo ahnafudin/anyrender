@@ -8,6 +8,7 @@ members = [
   "crates/anyrender_vello_cpu",
   "crates/anyrender_tiny_skia",
   "crates/anyrender_vello_gpu",
+  "crates/anyrender_vello_filters",
   "crates/anyrender_svg",
   "crates/wgpu_context",
   "crates/pixels_window_renderer",
@@ -36,6 +37,7 @@ anyrender_tiny_skia = { version = "0.1.0", path = "./crates/anyrender_tiny_skia"
 anyrender_vello = { version = "0.16.0", path = "./crates/anyrender_vello" }
 anyrender_vello_cpu = { version = "0.19.0", path = "./crates/anyrender_vello_cpu" }
 anyrender_vello_gpu = { version = "0.12.0", path = "./crates/anyrender_vello_gpu" }
+anyrender_vello_filters = { version = "0.1.0", path = "./crates/anyrender_vello_filters" }
 anyrender_svg = { version = "0.16.0", path = "./crates/anyrender_svg" }
 wgpu_context = { version = "0.11.0", path = "./crates/wgpu_context" }
 pixels_window_renderer = { version = "0.10.0", path = "./crates/pixels_window_renderer" }
@@ -91,3 +93,13 @@ web-sys = "0.3"
 
 # Dev-dependencies
 winit = { version = "0.30.2", features = ["rwh_06"] }
+
+# The `ahcut` features of anyrender_vello_gpu and anyrender_vello_filters name the `ahcut` feature of
+# Vello's crates, which crates.io Vello does not have, so this workspace resolves against AhCut's Vello
+# fork, pinned by commit. Without the feature that fork behaves as Vello 0.4.0. A patch table is read
+# only from the root of a build: a crate that depends on AnyRender names its own.
+[patch.crates-io]
+glifo = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
+vello_common = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
+vello_cpu = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
+vello_gpu = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
