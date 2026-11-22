@@ -18,10 +18,17 @@ webgl = [
 ]
 # A checked filter mode (`VelloGpuScenePainter::with_checked_filters`) that draws Gaussian chains and refuses every
 # other filter instead of drawing it unfiltered. Off by default.
-ahcut = ["anyrender/ahcut", "vello_common/ahcut", "vello_gpu/ahcut"]
+ahcut = [
+  "dep:anyrender_vello_filters",
+  "anyrender_vello_filters/ahcut",
+  "anyrender/ahcut",
+  "vello_common/ahcut",
+  "vello_gpu/ahcut",
+]
 
 [dependencies]
 anyrender = { workspace = true }
+anyrender_vello_filters = { workspace = true, optional = true }
 debug_timer = { workspace = true }
 kurbo = { workspace = true }
 peniko = { workspace = true }

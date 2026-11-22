@@ -1,0 +1,19 @@
+[package]
+name = "anyrender_vello_filters"
+description = "Checked conversion of AnyRender Gaussian filter chains for the Vello backends, with no GPU dependency"
+version = "0.1.0"
+documentation = "https://docs.rs/anyrender_vello_filters"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[features]
+# Opt-in, like the feature of this name in every crate our patches change. Without it the crate is empty, so
+# a workspace-wide build keeps upstream's feature set.
+ahcut = ["anyrender/ahcut", "vello_common/ahcut"]
+
+[dependencies]
+anyrender = { workspace = true }
+kurbo = { workspace = true }
+vello_common = { workspace = true }
