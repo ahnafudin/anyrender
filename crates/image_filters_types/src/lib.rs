@@ -34,7 +34,7 @@ mod gaussian_chain;
 #[cfg(feature = "ahcut")]
 mod gaussian_xy;
 #[cfg(feature = "ahcut")]
-pub use gaussian_xy::{FilterError, GaussianBlurXY};
+pub use gaussian_xy::{FilterBudgetExceeded, FilterBudgetField, FilterError, GaussianBlurXY};
 
 use self::{
     blur::GaussianBlurFilter,

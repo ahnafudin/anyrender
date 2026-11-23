@@ -7,11 +7,18 @@
 //! `anyrender` only with that feature.
 #![cfg(feature = "ahcut")]
 
-use anyrender::filters::{Filter, FilterError, GaussianBlurXY};
+use anyrender::filters::{
+    Filter, FilterBudgetExceeded, FilterBudgetField, FilterError, GaussianBlurXY,
+};
 use vello_common::filter_effects::FilterPrimitive;
 
-/// Limits of the checked filter path. Exceeding one is [`FilterError::Budget`], never a clamped or unfiltered
-/// result.
+/// The maximum cumulative Gaussian dependency on one side of a device axis, in pixels.
+pub const DEFAULT_MAX_HALO: f64 = 384.0;
+/// The minimum total padding charged per axis for each stage's scratch estimate, in pixels.
+pub const DEFAULT_MIN_SCRATCH_PADDING: f64 = 384.0;
+
+/// Limits of the checked filter path. When a cost exceeds a limit, [`FilterError::BudgetExceeded`]
+/// reports both values.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CheckedFilterLimits {
     /// The largest device-space standard deviation of either axis.
@@ -28,7 +35,7 @@ impl Default for CheckedFilterLimits {
         Self {
             max_device_sigma: 64.0,
             max_scratch_bytes: 64.0 * 1024.0 * 1024.0,
-            min_padding: 384.0,
+            min_padding: DEFAULT_MIN_SCRATCH_PADDING,
         }
     }
 }
@@ -48,11 +55,24 @@ pub fn convert_filter_checked_with(
     transform: kurbo::Affine,
     limits: &CheckedFilterLimits,
 ) -> Result<vello_common::filter_effects::Filter, FilterError> {
+    convert_filter_checked_with_halo_limit(filter, transform, limits, DEFAULT_MAX_HALO)
+}
+
+/// Converts a Gaussian chain with an explicit maximum one-sided dependency reach in device pixels.
+pub fn convert_filter_checked_with_halo_limit(
+    filter: &Filter,
+    transform: kurbo::Affine,
+    limits: &CheckedFilterLimits,
+    max_halo: f64,
+) -> Result<vello_common::filter_effects::Filter, FilterError> {
     use vello_common::filter::gaussian_xy::{GaussianXYError, transform_sigma};
     let stages = filter.checked_gaussian_stages()?;
     let final_region = filter
         .output_region()
         .ok_or(FilterError::Invalid("missing final crop"))?;
+    if !limits.min_padding.is_finite() || limits.min_padding < 0.0 {
+        return Err(FilterError::Invalid("scratch padding"));
+    }
     let mut converted = Vec::with_capacity(stages.len());
     let mut scratch_bytes = 0.0;
     let mut dependency_x = 0.0;
@@ -66,28 +86,37 @@ pub fn convert_filter_checked_with(
                     FilterError::Unsupported("Gaussian covariance transform")
                 }
             })?;
-        if sigma.iter().any(|v| *v > limits.max_device_sigma) {
-            return Err(FilterError::Budget("device-space sigma"));
-        }
+        let sigma_cap = f64::from(limits.max_device_sigma);
+        check_limit(
+            FilterBudgetField::DeviceSigmaX,
+            f64::from(sigma[0]),
+            sigma_cap,
+        )?;
+        check_limit(
+            FilterBudgetField::DeviceSigmaY,
+            f64::from(sigma[1]),
+            sigma_cap,
+        )?;
         dependency_x += f64::from(sigma[0]) * 3.0;
         dependency_y += f64::from(sigma[1]) * 3.0;
+        check_limit(FilterBudgetField::HaloX, dependency_x, max_halo)?;
+        check_limit(FilterBudgetField::HaloY, dependency_y, max_halo)?;
         let region = transform.transform_rect_bbox(blur.region.union(final_region));
         let width = region.width().ceil();
         let height = region.height().ceil();
         // Each stage is charged its padded region, including the serial dependency halo; the chain keeps all of
         // its stages at once, so the charges add up.
-        let padding_x = limits.min_padding.max(2.0 * dependency_x);
-        let padding_y = limits.min_padding.max(2.0 * dependency_y);
-        if ![width, height].iter().all(|v| v.is_finite() && *v >= 0.0)
-            || width + padding_x > f64::from(u16::MAX)
-            || height + padding_y > f64::from(u16::MAX)
-        {
-            return Err(FilterError::Budget("filter scratch region"));
-        }
-        scratch_bytes += (width + padding_x) * (height + padding_y) * 8.0;
-        if !scratch_bytes.is_finite() || scratch_bytes > limits.max_scratch_bytes {
-            return Err(FilterError::Budget("filter scratch region"));
-        }
+        let padded_width = width + limits.min_padding.max(2.0 * dependency_x);
+        let padded_height = height + limits.min_padding.max(2.0 * dependency_y);
+        let max_extent = f64::from(u16::MAX);
+        check_limit(FilterBudgetField::PaddedWidth, padded_width, max_extent)?;
+        check_limit(FilterBudgetField::PaddedHeight, padded_height, max_extent)?;
+        scratch_bytes += padded_width * padded_height * 8.0;
+        check_limit(
+            FilterBudgetField::ScratchBytes,
+            scratch_bytes,
+            limits.max_scratch_bytes,
+        )?;
         converted.push((
             FilterPrimitive::GaussianBlurXY {
                 std_deviation: blur.std_deviation,
@@ -106,11 +135,40 @@ pub fn convert_filter_checked_with(
         .map_err(|_| FilterError::Invalid("Gaussian chain translation"))
 }
 
+fn check_limit(field: FilterBudgetField, supplied: f64, limit: f64) -> Result<(), FilterError> {
+    if !supplied.is_finite() || supplied < 0.0 {
+        return Err(FilterError::Invalid("non-finite or negative filter cost"));
+    }
+    if limit.is_nan() || limit < 0.0 {
+        return Err(FilterError::Invalid("filter budget limit"));
+    }
+    if supplied > limit {
+        return Err(FilterError::BudgetExceeded(FilterBudgetExceeded {
+            field,
+            supplied,
+            limit,
+        }));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod budget_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use anyrender::filters::{FilterEffect, FilterInputs};
     use kurbo::{Affine, Rect};
+
+    #[test]
+    fn diagnostic_reports_device_sigma_and_limit() {
+        let crop = Rect::new(0.0, 0.0, 8.0, 8.0);
+        let stage = GaussianBlurXY::new([0.0, 32.5], crop, false).unwrap();
+        let graph = Filter::gaussian_chain(&[stage], crop).unwrap();
+        let error = convert_filter_checked(&graph, Affine::scale(2.0)).unwrap_err();
+        assert_eq!(error.to_string(), "device sigma Y: 65 px exceeds 64 px");
+    }
     #[test]
     fn refuses_truncation() {
         let mut graph = Filter::single(FilterEffect::blur(1.0), Rect::ZERO);
@@ -157,7 +215,11 @@ mod tests {
         let graph = Filter::gaussian_chain(&stages, crop).unwrap();
         assert_eq!(
             convert_filter_checked(&graph, Affine::IDENTITY),
-            Err(FilterError::Budget("filter scratch region"))
+            Err(FilterError::BudgetExceeded(FilterBudgetExceeded {
+                field: FilterBudgetField::ScratchBytes,
+                supplied: 90_935_296.0,
+                limit: 67_108_864.0,
+            }))
         );
     }
 }

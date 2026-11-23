@@ -11,13 +11,71 @@ pub enum FilterError {
     Invalid(&'static str),
     /// A resource limit the caller set would be exceeded.
     Budget(&'static str),
+    /// A measured device-space cost exceeds the renderer's limit for this field.
+    BudgetExceeded(FilterBudgetExceeded),
 }
 impl core::fmt::Display for FilterError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if let Self::BudgetExceeded(budget) = self {
+            let (field, unit) = match budget.field {
+                FilterBudgetField::DeviceSigmaX => ("device sigma X", "px"),
+                FilterBudgetField::DeviceSigmaY => ("device sigma Y", "px"),
+                FilterBudgetField::HaloX => ("one-sided halo X", "px"),
+                FilterBudgetField::HaloY => ("one-sided halo Y", "px"),
+                FilterBudgetField::PaddedWidth => ("padded width", "px"),
+                FilterBudgetField::PaddedHeight => ("padded height", "px"),
+                FilterBudgetField::ScratchBytes => ("aggregate scratch", "bytes"),
+            };
+            return write!(
+                f,
+                "{field}: {} {unit} exceeds {} {unit}",
+                budget.supplied, budget.limit
+            );
+        }
         write!(f, "{self:?}")
     }
 }
 impl std::error::Error for FilterError {}
+
+/// The independently checked quantity in a Gaussian chain's resource budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterBudgetField {
+    /// Horizontal standard deviation after applying the drawing transform, in pixels.
+    DeviceSigmaX,
+    /// Vertical standard deviation after applying the drawing transform, in pixels.
+    DeviceSigmaY,
+    /// Accumulated dependency reach to either side along X, in device pixels.
+    HaloX,
+    /// Accumulated dependency reach to either side along Y, in device pixels.
+    HaloY,
+    /// Device width of a stage including both sides' scratch padding, in pixels.
+    PaddedWidth,
+    /// Device height of a stage including both sides' scratch padding, in pixels.
+    PaddedHeight,
+    /// Total estimated scratch over the stages considered so far, in bytes.
+    ScratchBytes,
+}
+
+/// Values from the comparison that refused a filter. Pixel costs may be fractional.
+#[derive(Debug, Clone, Copy)]
+pub struct FilterBudgetExceeded {
+    /// Which resource exceeded its limit.
+    pub field: FilterBudgetField,
+    /// Measured cost in the field's units.
+    pub supplied: f64,
+    /// Largest admitted value in the same units.
+    pub limit: f64,
+}
+
+// FilterError has total equality. Compare the exact reported values without rounding them.
+impl PartialEq for FilterBudgetExceeded {
+    fn eq(&self, other: &Self) -> bool {
+        self.field == other.field
+            && self.supplied.to_bits() == other.supplied.to_bits()
+            && self.limit.to_bits() == other.limit.to_bits()
+    }
+}
+impl Eq for FilterBudgetExceeded {}
 
 /// A Gaussian blur of the source graphic with independent axes, a local output crop and a colour space.
 #[derive(Debug, Clone, PartialEq)]
