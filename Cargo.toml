@@ -99,7 +99,7 @@ winit = { version = "0.30.2", features = ["rwh_06"] }
 # fork, pinned by commit. Without the feature that fork behaves as Vello 0.4.0. A patch table is read
 # only from the root of a build: a crate that depends on AnyRender names its own.
 [patch.crates-io]
-glifo = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
-vello_common = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
-vello_cpu = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
-vello_gpu = { git = "https://github.com/ahnafudin/vello", rev = "14cec33c66f93830ffe10e59f16e16428a277a1c" }
+glifo = { git = "https://github.com/ahnafudin/vello", rev = "e8c900d0a8ca59d28b93eba074e32709d4924631" }
+vello_common = { git = "https://github.com/ahnafudin/vello", rev = "e8c900d0a8ca59d28b93eba074e32709d4924631" }
+vello_cpu = { git = "https://github.com/ahnafudin/vello", rev = "e8c900d0a8ca59d28b93eba074e32709d4924631" }
+vello_gpu = { git = "https://github.com/ahnafudin/vello", rev = "e8c900d0a8ca59d28b93eba074e32709d4924631" }

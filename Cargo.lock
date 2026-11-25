@@ -1427,7 +1427,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.5.0"
-source = "git+https://github.com/ahnafudin/vello?rev=14cec33c66f93830ffe10e59f16e16428a277a1c#14cec33c66f93830ffe10e59f16e16428a277a1c"
+source = "git+https://github.com/ahnafudin/vello?rev=e8c900d0a8ca59d28b93eba074e32709d4924631#e8c900d0a8ca59d28b93eba074e32709d4924631"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -4165,7 +4165,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.4.0"
-source = "git+https://github.com/ahnafudin/vello?rev=14cec33c66f93830ffe10e59f16e16428a277a1c#14cec33c66f93830ffe10e59f16e16428a277a1c"
+source = "git+https://github.com/ahnafudin/vello?rev=e8c900d0a8ca59d28b93eba074e32709d4924631#e8c900d0a8ca59d28b93eba074e32709d4924631"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -4181,7 +4181,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.4.0"
-source = "git+https://github.com/ahnafudin/vello?rev=14cec33c66f93830ffe10e59f16e16428a277a1c#14cec33c66f93830ffe10e59f16e16428a277a1c"
+source = "git+https://github.com/ahnafudin/vello?rev=e8c900d0a8ca59d28b93eba074e32709d4924631#e8c900d0a8ca59d28b93eba074e32709d4924631"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -4211,7 +4211,7 @@ dependencies = [
 [[package]]
 name = "vello_gpu"
 version = "0.4.0"
-source = "git+https://github.com/ahnafudin/vello?rev=14cec33c66f93830ffe10e59f16e16428a277a1c#14cec33c66f93830ffe10e59f16e16428a277a1c"
+source = "git+https://github.com/ahnafudin/vello?rev=e8c900d0a8ca59d28b93eba074e32709d4924631#e8c900d0a8ca59d28b93eba074e32709d4924631"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4229,7 +4229,7 @@ dependencies = [
 [[package]]
 name = "vello_gpu_shaders"
 version = "0.4.0"
-source = "git+https://github.com/ahnafudin/vello?rev=14cec33c66f93830ffe10e59f16e16428a277a1c#14cec33c66f93830ffe10e59f16e16428a277a1c"
+source = "git+https://github.com/ahnafudin/vello?rev=e8c900d0a8ca59d28b93eba074e32709d4924631#e8c900d0a8ca59d28b93eba074e32709d4924631"
 dependencies = [
  "naga 30.0.1",
  "wesl",
